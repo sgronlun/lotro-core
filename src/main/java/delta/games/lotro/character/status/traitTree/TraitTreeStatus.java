@@ -26,6 +26,7 @@ public class TraitTreeStatus
   private TraitTreeBranch _selectedBranch;
   private Map<Integer,IntegerHolder> _treeRanks;
   private int _cost;
+  private int _totalPoints;
 
   /**
    * Constructor.
@@ -35,6 +36,7 @@ public class TraitTreeStatus
   {
     _tree=tree;
     _cost=0;
+    _totalPoints=0;
     _selectedBranch=_tree.getBranches().get(0);
     initRanks();
   }
@@ -196,8 +198,15 @@ public class TraitTreeStatus
   public void setRankForCell(String cellId, int rank)
   {
     TraitTreeCell cell=getCellById(cellId);
-    TraitDescription trait=cell.getTrait();
-    setRankForTrait(trait.getIdentifier(),rank);
+    if (cell!=null)
+    {
+      TraitDescription trait=cell.getTrait();
+      setRankForTrait(trait.getIdentifier(),rank);
+    }
+    else
+    {
+      LOGGER.warn("Cell not found: "+cellId);
+    }
   }
 
   /**
@@ -235,6 +244,24 @@ public class TraitTreeStatus
   }
 
   /**
+   * Get the total points available.
+   * @return a points count.
+   */
+  public int getTotalPoints()
+  {
+    return _totalPoints;
+  }
+
+  /**
+   * Set the total points available.
+   * @param totalPoints Points count to set.
+   */
+  public void setTotalPoints(int totalPoints)
+  {
+    _totalPoints=totalPoints;
+  }
+
+  /**
    * Indicates if a cell is enabled or not.
    * @param cellId Identifier of the cell to test.
    * @return <code>true</code> if enabled, <code>false</code> otherwise.
@@ -252,6 +279,11 @@ public class TraitTreeStatus
       return true;
     }
     TraitTreeBranch branch=getBranchForCell(cellId);
+    if (branch==null)
+    {
+      LOGGER.warn("Branch not found for cell: "+cellId);
+      return false;
+    }
     int neededRanks=branch.getProgression().getSteps().get(row-2).intValue();
     int gotRanks=getRanksForRows(branch,row-1);
     if (LOGGER.isDebugEnabled())
@@ -273,6 +305,11 @@ public class TraitTreeStatus
     {
       String depCellId=dependency.getCellId();
       TraitTreeCell depCell=getCellById(depCellId);
+      if (depCell==null)
+      {
+        LOGGER.warn("Dependent cell not found: "+depCellId);
+        continue;
+      }
       TraitDescription trait=depCell.getTrait();
       Integer key=Integer.valueOf(trait.getIdentifier());
       int ranks=_treeRanks.get(key).getInt();
