@@ -1,11 +1,9 @@
 package delta.games.lotro.lore.quests.objectives.io.xml;
 
-import java.util.List;
+import org.xml.sax.Attributes;
 
-import org.w3c.dom.Element;
-import org.w3c.dom.NamedNodeMap;
-
-import delta.common.utils.xml.DOMParsingTools;
+import delta.common.utils.xml.SAXParsingTools;
+import delta.common.utils.xml.sax.SAXParserValve;
 import delta.games.lotro.character.skills.SkillDescription;
 import delta.games.lotro.lore.agents.EntityClassification;
 import delta.games.lotro.lore.agents.io.xml.AgentsXMLIO;
@@ -16,6 +14,8 @@ import delta.games.lotro.lore.geo.LandmarkDescription;
 import delta.games.lotro.lore.items.Item;
 import delta.games.lotro.lore.quests.Achievable;
 import delta.games.lotro.lore.quests.dialogs.DialogElement;
+import delta.games.lotro.lore.quests.geo.AchievableGeoPoint;
+import delta.games.lotro.lore.quests.geo.io.xml.AchievableGeoDataXMLConstants;
 import delta.games.lotro.lore.quests.geo.io.xml.AchievableGeoDataXMLParser;
 import delta.games.lotro.lore.quests.objectives.ConditionTarget;
 import delta.games.lotro.lore.quests.objectives.ConditionType;
@@ -54,83 +54,110 @@ import delta.games.lotro.utils.io.xml.SharedXMLUtils;
  * Parser for quests/deeds objectives stored in XML.
  * @author DAM
  */
-public class ObjectivesXMLParser
+public class ObjectivesSaxXMLParser extends SAXParserValve<Void>
 {
+  private ObjectivesManager _objectives;
+  private Objective _currentObjective;
+  private ObjectiveCondition _condition;
+
   /**
-   * Load objectives from XML.
-   * @param root Objectives description tag.
-   * @param objectives Storage for loaded data. 
+   * Set the storage for objectives.
+   * @param objectives Storage to set.
    */
-  public static void loadObjectives(Element root, ObjectivesManager objectives)
+  public void setObjectives(ObjectivesManager objectives)
   {
-    Element objectivesTag=DOMParsingTools.getChildTagByName(root,ObjectivesXMLConstants.OBJECTIVES_TAG);
-    if (objectivesTag!=null)
-    {
-      List<Element> objectiveTags=DOMParsingTools.getChildTagsByName(objectivesTag,ObjectivesXMLConstants.OBJECTIVE_TAG);
-      for(Element objectiveTag : objectiveTags)
-      {
-        parseObjectiveTag(objectives, objectiveTag);
-      }
-    }
+    _objectives=objectives;
   }
 
-  private static void parseObjectiveTag(ObjectivesManager objectives, Element objectiveTag)
+  @Override
+  public SAXParserValve<?> handleStartTag(String tagName, Attributes attrs)
+  {
+    if (ObjectivesXMLConstants.OBJECTIVE_TAG.equals(tagName))
+    {
+      _currentObjective=parseObjective(attrs);
+      _objectives.addObjective(_currentObjective);
+    }
+    else if (ObjectivesXMLConstants.DIALOG_TAG.equals(tagName))
+    {
+      DialogElement dialog=DialogsSaxParser.parseDialog(attrs);
+      _currentObjective.addDialog(dialog);
+    }
+    else if (ObjectivesXMLConstants.MONSTER_SELECTION_TAG.equals(tagName))
+    {
+      // Mob selections
+      MobSelection mobSelection=parseMobSelection(attrs);
+      ((MonsterDiedCondition)_condition).getMobSelections().add(mobSelection);
+    }
+    else if (AchievableGeoDataXMLConstants.POINT_TAG.equals(tagName))
+    {
+      AchievableGeoPoint point=AchievableGeoDataXMLParser.parseGeoDataElement(attrs);
+      _condition.addPoint(point);
+    }
+    else
+    {
+      _condition=parseCondition(tagName, attrs);
+      _currentObjective.addCondition(_condition);
+    }
+    return this;
+  }
+
+  @Override
+  public SAXParserValve<?> handleEndTag(String tagName)
+  {
+    if (ObjectivesXMLConstants.OBJECTIVE_TAG.equals(tagName))
+    {
+      return getParent();
+    }
+    return this;
+  }
+
+  private Objective parseObjective(Attributes attrs)
   {
     Objective objective=new Objective();
-    NamedNodeMap attrs=objectiveTag.getAttributes();
     // Index
-    int objectiveIndex=DOMParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.OBJECTIVE_INDEX_ATTR,1);
+    int objectiveIndex=SAXParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.OBJECTIVE_INDEX_ATTR,1);
     objective.setIndex(objectiveIndex);
     // Description
-    String description=DOMParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.OBJECTIVE_TEXT_ATTR,"");
+    String description=SAXParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.OBJECTIVE_TEXT_ATTR,"");
     objective.setDescription(description);
     // Lore override
-    String loreOverride=DOMParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.OBJECTIVE_LORE_OVERRIDE_ATTR,"");
+    String loreOverride=SAXParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.OBJECTIVE_LORE_OVERRIDE_ATTR,"");
     objective.setLoreOverride(loreOverride);
     // Progress override
-    String progressOverride=DOMParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.OBJECTIVE_PROGRESS_OVERRIDE_ATTR,"");
+    String progressOverride=SAXParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.OBJECTIVE_PROGRESS_OVERRIDE_ATTR,"");
     objective.setProgressOverride(progressOverride);
     // Billboard override
-    String billboardOverride=DOMParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.OBJECTIVE_BILLBOARD_OVERRIDE_ATTR,"");
+    String billboardOverride=SAXParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.OBJECTIVE_BILLBOARD_OVERRIDE_ATTR,"");
     objective.setBillboardOverride(billboardOverride);
-    // Dialogs & conditions
-    List<Element> childTags=DOMParsingTools.getChildTags(objectiveTag);
-    for(Element childTag : childTags)
-    {
-      String tagName=childTag.getTagName();
-      if (ObjectivesXMLConstants.DIALOG_TAG.equals(tagName))
-      {
-        DialogElement dialog=DialogsXMLParser.parseDialog(childTag);
-        objective.addDialog(dialog);
-      }
-      else
-      {
-        ObjectiveCondition condition=parseConditionTag(childTag);
-        AchievableGeoDataXMLParser.parseGeoData(childTag,condition);
-        objective.addCondition(condition);
-      }
-    }
-    objectives.addObjective(objective);
+    return objective;
   }
 
-  private static ObjectiveCondition parseConditionTag(Element conditionTag)
+  private static void parseConditionAttributes(Attributes attrs, ObjectiveCondition condition)
+  {
+    // Index
+    int index=SAXParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.CONDITION_INDEX_ATTR,0);
+    // Lore info
+    String loreInfo=SAXParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.CONDITION_LORE_INFO_ATTR,null);
+    // Show progress text
+    boolean showProgressText=SAXParsingTools.getBooleanAttribute(attrs,ObjectivesXMLConstants.CONDITION_SHOW_PROGRESS_TEXT,true);
+    // Show billboard text
+    boolean showBillboardText=SAXParsingTools.getBooleanAttribute(attrs,ObjectivesXMLConstants.CONDITION_SHOW_BILLBOARD_TEXT,true);
+    // Progress override
+    String progressOverride=SAXParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.CONDITION_PROGRESS_OVERRIDE_ATTR,null);
+    // Count
+    int count=SAXParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.CONDITION_COUNT_ATTR,1);
+
+    condition.setIndex(index);
+    condition.setLoreInfo(loreInfo);
+    condition.setShowBillboardText(showBillboardText);
+    condition.setShowProgressText(showProgressText);
+    condition.setProgressOverride(progressOverride);
+    condition.setCount(count);
+  }
+
+  private ObjectiveCondition parseCondition(String tagName, Attributes attrs)
   {
     ObjectiveCondition ret=null;
-    String tagName=conditionTag.getTagName();
-    NamedNodeMap attrs=conditionTag.getAttributes();
-    // Index
-    int index=DOMParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.CONDITION_INDEX_ATTR,0);
-    // Lore info
-    String loreInfo=DOMParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.CONDITION_LORE_INFO_ATTR,null);
-    // Show progress text
-    boolean showProgressText=DOMParsingTools.getBooleanAttribute(attrs,ObjectivesXMLConstants.CONDITION_SHOW_PROGRESS_TEXT,true);
-    // Show billboard text
-    boolean showBillboardText=DOMParsingTools.getBooleanAttribute(attrs,ObjectivesXMLConstants.CONDITION_SHOW_BILLBOARD_TEXT,true);
-    // Progress override
-    String progressOverride=DOMParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.CONDITION_PROGRESS_OVERRIDE_ATTR,null);
-    // Count
-    int count=DOMParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.CONDITION_COUNT_ATTR,1);
-
     // Specifics
     if (ObjectivesXMLConstants.QUEST_COMPLETE_TAG.equals(tagName))
     {
@@ -138,7 +165,7 @@ public class ObjectivesXMLParser
     }
     else if (ObjectivesXMLConstants.MONSTER_DIED_TAG.equals(tagName))
     {
-      ret=parseMonsterDiedCondition(attrs,conditionTag);
+      ret=parseMonsterDiedCondition(attrs);
     }
     else if (ObjectivesXMLConstants.LANDMARK_DETECTION_TAG.equals(tagName))
     {
@@ -208,23 +235,15 @@ public class ObjectivesXMLParser
     {
       ret=parseDefaultCondition(attrs);
     }
-    if (ret!=null)
-    {
-      ret.setIndex(index);
-      ret.setLoreInfo(loreInfo);
-      ret.setShowBillboardText(showBillboardText);
-      ret.setShowProgressText(showProgressText);
-      ret.setProgressOverride(progressOverride);
-      ret.setCount(count);
-    }
+    parseConditionAttributes(attrs,ret);
     return ret;
   }
 
-  private static QuestCompleteCondition parseQuestCompleteCondition(NamedNodeMap attrs)
+  private static QuestCompleteCondition parseQuestCompleteCondition(Attributes attrs)
   {
     QuestCompleteCondition condition=new QuestCompleteCondition();
     // Achievable
-    int achievableId=DOMParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.QUEST_COMPLETE_ACHIEVABLE_ID_ATTR,0);
+    int achievableId=SAXParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.QUEST_COMPLETE_ACHIEVABLE_ID_ATTR,0);
     if (achievableId>0)
     {
       Proxy<Achievable> proxy=new Proxy<Achievable>();
@@ -232,99 +251,100 @@ public class ObjectivesXMLParser
       condition.setProxy(proxy);
     }
     // Quest category
-    String questCategory=DOMParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.QUEST_COMPLETE_QUEST_CATEGORY_ATTR,null);
+    String questCategory=SAXParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.QUEST_COMPLETE_QUEST_CATEGORY_ATTR,null);
     condition.setQuestCategory(questCategory);
     return condition;
   }
 
-  private static MonsterDiedCondition parseMonsterDiedCondition(NamedNodeMap attrs, Element conditionTag)
+  private static MonsterDiedCondition parseMonsterDiedCondition(Attributes attrs)
   {
     MonsterDiedCondition condition=new MonsterDiedCondition();
     // Mob ID
-    int mobId=DOMParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.MONSTER_DIE_MOB_ID_ATTR,0);
+    int mobId=SAXParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.MONSTER_DIE_MOB_ID_ATTR,0);
     if (mobId>0)
     {
       condition.setMobId(Integer.valueOf(mobId));
     }
     // Mob name
-    String mobName=DOMParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.MONSTER_DIE_MOB_NAME_ATTR,null);
+    String mobName=SAXParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.MONSTER_DIE_MOB_NAME_ATTR,null);
     condition.setMobName(mobName);
-    // Mob selections
-    List<Element> monsterSelectionTags=DOMParsingTools.getChildTagsByName(conditionTag,ObjectivesXMLConstants.MONSTER_SELECTION_TAG);
-    for(Element monsterSelectionTag : monsterSelectionTags)
-    {
-      NamedNodeMap selectionAttrs=monsterSelectionTag.getAttributes();
-      MobSelection selection=new MobSelection();
-      // Where
-      String where=DOMParsingTools.getStringAttribute(selectionAttrs,ObjectivesXMLConstants.MONSTER_SELECTION_WHERE_ATTR,null);
-      selection.setWhere(where);
-      // What
-      EntityClassification what=new EntityClassification();
-      AgentsXMLIO.parseEntityClassification(what,selectionAttrs);
-      selection.setWhat(what);
-      condition.getMobSelections().add(selection);
-    }
     return condition;
   }
 
-  private static LandmarkDetectionCondition parseLandmarkDetectionCondition(NamedNodeMap attrs)
+  private static MobSelection parseMobSelection(Attributes selectionAttrs)
+  {
+    MobSelection selection=new MobSelection();
+    // Where
+    String where=SAXParsingTools.getStringAttribute(selectionAttrs,ObjectivesXMLConstants.MONSTER_SELECTION_WHERE_ATTR,null);
+    selection.setWhere(where);
+    // What
+    EntityClassification what=new EntityClassification();
+    AgentsXMLIO.parseEntityClassification(what,selectionAttrs);
+    selection.setWhat(what);
+    return selection;
+  }
+
+  private static LandmarkDetectionCondition parseLandmarkDetectionCondition(Attributes attrs)
   {
     LandmarkDetectionCondition condition=new LandmarkDetectionCondition();
     // Landmark proxy
     // - id
-    int landmarkId=DOMParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.LANDMARK_DETECTION_ID_ATTR,0);
-    // - name
-    String landmarkName=DOMParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.LANDMARK_DETECTION_NAME_ATTR,"?");
-    Proxy<LandmarkDescription> proxy=new Proxy<LandmarkDescription>();
-    proxy.setId(landmarkId);
-    proxy.setName(landmarkName);
-    condition.setLandmarkProxy(proxy);
+    int landmarkId=SAXParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.LANDMARK_DETECTION_ID_ATTR,0);
+    if (landmarkId!=0)
+    {
+      // - name
+      String landmarkName=SAXParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.LANDMARK_DETECTION_NAME_ATTR,"?");
+      Proxy<LandmarkDescription> proxy=new Proxy<LandmarkDescription>();
+      proxy.setId(landmarkId);
+      proxy.setName(landmarkName);
+      condition.setLandmarkProxy(proxy);
+    }
     return condition;
   }
 
-  private static InventoryItemCondition parseInventoryItemCondition(NamedNodeMap attrs)
+  private static InventoryItemCondition parseInventoryItemCondition(Attributes attrs)
   {
     InventoryItemCondition condition=new InventoryItemCondition();
     parseItemCondition(condition,attrs);
     return condition;
   }
 
-  private static ItemUsedCondition parseItemUsedCondition(NamedNodeMap attrs)
+  private static ItemUsedCondition parseItemUsedCondition(Attributes attrs)
   {
     ItemUsedCondition condition=new ItemUsedCondition();
     parseItemCondition(condition,attrs);
     return condition;
   }
 
-  private static ExternalInventoryItemCondition parseExternalInventoryItemCondition(NamedNodeMap attrs)
+  private static ExternalInventoryItemCondition parseExternalInventoryItemCondition(Attributes attrs)
   {
     ExternalInventoryItemCondition condition=new ExternalInventoryItemCondition();
     parseItemCondition(condition,attrs);
     return condition;
   }
 
-  private static ItemTalkCondition parseItemTalkCondition(NamedNodeMap attrs)
+  private static ItemTalkCondition parseItemTalkCondition(Attributes attrs)
   {
     ItemTalkCondition condition=new ItemTalkCondition();
     parseItemCondition(condition,attrs);
     return condition;
   }
 
-  private static void parseItemCondition(ItemCondition condition, NamedNodeMap attrs)
+  private static void parseItemCondition(ItemCondition condition, Attributes attrs)
   {
     // Item proxy
     Proxy<Item> itemProxy=parseItemProxy(attrs);
     condition.setProxy(itemProxy);
   }
 
-  private static FactionLevelCondition parseFactionLevelCondition(NamedNodeMap attrs)
+  private static FactionLevelCondition parseFactionLevelCondition(Attributes attrs)
   {
     FactionLevelCondition condition=new FactionLevelCondition();
     // Faction proxy
     // - id
-    int factionId=DOMParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.FACTION_LEVEL_ID_ATTR,0);
+    int factionId=SAXParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.FACTION_LEVEL_ID_ATTR,0);
     // - name
-    String factionName=DOMParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.FACTION_LEVEL_NAME_ATTR,"?");
+    String factionName=SAXParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.FACTION_LEVEL_NAME_ATTR,"?");
     Proxy<Faction> proxy=new Proxy<Faction>();
     proxy.setId(factionId);
     proxy.setName(factionName);
@@ -333,28 +353,28 @@ public class ObjectivesXMLParser
     proxy.setObject(faction);
     condition.setProxy(proxy);
     // Tier
-    int tier=DOMParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.FACTION_LEVEL_TIER_ATTR,1);
+    int tier=SAXParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.FACTION_LEVEL_TIER_ATTR,1);
     condition.setTier(tier);
     return condition;
   }
 
-  private static SkillUsedCondition parseSkillUsedCondition(NamedNodeMap attrs)
+  private static SkillUsedCondition parseSkillUsedCondition(Attributes attrs)
   {
     SkillUsedCondition condition=new SkillUsedCondition();
     // Skill proxy
     // - id
-    int skillId=DOMParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.SKILL_USED_SKILL_ID_ATTR,0);
+    int skillId=SAXParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.SKILL_USED_SKILL_ID_ATTR,0);
     if (skillId!=0)
     {
       // - name
-      String skillName=DOMParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.SKILL_USED_SKILL_NAME_ATTR,"?");
+      String skillName=SAXParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.SKILL_USED_SKILL_NAME_ATTR,"?");
       Proxy<SkillDescription> proxy=new Proxy<SkillDescription>();
       proxy.setId(skillId);
       proxy.setName(skillName);
       condition.setProxy(proxy);
     }
     // Max per day
-    int maxPerDay=DOMParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.SKILL_USED_MAX_PER_DAY_ATTR,-1);
+    int maxPerDay=SAXParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.SKILL_USED_MAX_PER_DAY_ATTR,-1);
     if (maxPerDay!=-1)
     {
       condition.setMaxPerDay(Integer.valueOf(maxPerDay));
@@ -362,40 +382,40 @@ public class ObjectivesXMLParser
     return condition;
   }
 
-  private static NpcTalkCondition parseNpcTalkCondition(NamedNodeMap attrs)
+  private static NpcTalkCondition parseNpcTalkCondition(Attributes attrs)
   {
     NpcTalkCondition condition=new NpcTalkCondition();
     parseNpcCondition(condition,attrs);
     return condition;
   }
 
-  private static NpcUsedCondition parseNpcUsedCondition(NamedNodeMap attrs)
+  private static NpcUsedCondition parseNpcUsedCondition(Attributes attrs)
   {
     NpcUsedCondition condition=new NpcUsedCondition();
     parseNpcCondition(condition,attrs);
     return condition;
   }
 
-  private static void parseNpcCondition(NpcCondition condition, NamedNodeMap attrs)
+  private static void parseNpcCondition(NpcCondition condition, Attributes attrs)
   {
     Proxy<NpcDescription> npcProxy=SharedXMLUtils.parseNpcProxy(attrs);
     condition.setProxy(npcProxy);
   }
 
-  private static LevelCondition parseLevelCondition(NamedNodeMap attrs)
+  private static LevelCondition parseLevelCondition(Attributes attrs)
   {
     LevelCondition condition=new LevelCondition();
     // Level
-    int level=DOMParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.LEVEL_ATTR,1);
+    int level=SAXParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.LEVEL_ATTR,1);
     condition.setLevel(level);
     return condition;
   }
 
-  private static QuestBestowedCondition parseQuestBestowedCondition(NamedNodeMap attrs)
+  private static QuestBestowedCondition parseQuestBestowedCondition(Attributes attrs)
   {
     QuestBestowedCondition condition=new QuestBestowedCondition();
     // Achievable
-    int achievableId=DOMParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.QUEST_BESTOWED_ACHIEVABLE_ID_ATTR,0);
+    int achievableId=SAXParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.QUEST_BESTOWED_ACHIEVABLE_ID_ATTR,0);
     if (achievableId>0)
     {
       Proxy<Achievable> proxy=new Proxy<Achievable>();
@@ -405,41 +425,41 @@ public class ObjectivesXMLParser
     return condition;
   }
 
-  private static DetectingCondition parseDetectingCondition(NamedNodeMap attrs)
+  private static DetectingCondition parseDetectingCondition(Attributes attrs)
   {
     DetectingCondition condition=new DetectingCondition();
     parseDetectionCondition(condition,attrs);
     return condition;
   }
 
-  private static EnterDetectionCondition parseEnterDetectionCondition(NamedNodeMap attrs)
+  private static EnterDetectionCondition parseEnterDetectionCondition(Attributes attrs)
   {
     EnterDetectionCondition condition=new EnterDetectionCondition();
     parseDetectionCondition(condition,attrs);
     return condition;
   }
 
-  private static void parseDetectionCondition(DetectionCondition condition, NamedNodeMap attrs)
+  private static void parseDetectionCondition(DetectionCondition condition, Attributes attrs)
   {
     // Target
     ConditionTarget target=parseTarget(attrs);
     condition.setTarget(target);
   }
 
-  private static EmoteCondition parseEmoteCondition(NamedNodeMap attrs)
+  private static EmoteCondition parseEmoteCondition(Attributes attrs)
   {
     EmoteCondition condition=new EmoteCondition();
     // Emote proxy
     // - id
-    int emoteId=DOMParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.EMOTE_ID_ATTR,0);
+    int emoteId=SAXParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.EMOTE_ID_ATTR,0);
     // - command
-    String command=DOMParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.EMOTE_COMMAND_ATTR,"?");
+    String command=SAXParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.EMOTE_COMMAND_ATTR,"?");
     Proxy<EmoteDescription> proxy=new Proxy<EmoteDescription>();
     proxy.setId(emoteId);
     proxy.setName(command);
     condition.setProxy(proxy);
     // Max per day
-    int maxPerDay=DOMParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.EMOTE_MAX_DAILY_ATTR,-1);
+    int maxPerDay=SAXParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.EMOTE_MAX_DAILY_ATTR,-1);
     if (maxPerDay!=-1)
     {
       condition.setMaxDaily(Integer.valueOf(maxPerDay));
@@ -450,7 +470,7 @@ public class ObjectivesXMLParser
     return condition;
   }
 
-  private static HobbyCondition parseHobbyCondition(NamedNodeMap attrs)
+  private static HobbyCondition parseHobbyCondition(Attributes attrs)
   {
     HobbyCondition condition=new HobbyCondition();
     // Item proxy
@@ -459,16 +479,16 @@ public class ObjectivesXMLParser
     return condition;
   }
 
-  private static TimeExpiredCondition parseTimeExpiredCondition(NamedNodeMap attrs)
+  private static TimeExpiredCondition parseTimeExpiredCondition(Attributes attrs)
   {
     TimeExpiredCondition condition=new TimeExpiredCondition();
     // Duration
-    int duration=DOMParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.TIME_EXPIRED_DURATION_ATTR,0);
+    int duration=SAXParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.TIME_EXPIRED_DURATION_ATTR,0);
     condition.setDuration(duration);
     return condition;
   }
 
-  private static ConditionTarget parseTarget(NamedNodeMap attrs)
+  private static ConditionTarget parseTarget(Attributes attrs)
   {
     ConditionTarget target=null;
     // NPC proxy
@@ -484,10 +504,10 @@ public class ObjectivesXMLParser
     return target;
   }
 
-  private static DefaultObjectiveCondition parseDefaultCondition(NamedNodeMap attrs)
+  private static DefaultObjectiveCondition parseDefaultCondition(Attributes attrs)
   {
     // Type
-    String typeStr=DOMParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.CONDITION_TYPE_ATTR,null);
+    String typeStr=SAXParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.CONDITION_TYPE_ATTR,null);
     ConditionType type=null;
     if (typeStr!=null)
     {
@@ -497,16 +517,16 @@ public class ObjectivesXMLParser
     return condition;
   }
 
-  private static Proxy<MobDescription> parseMobProxy(NamedNodeMap attrs)
+  private static Proxy<MobDescription> parseMobProxy(Attributes attrs)
   {
     Proxy<MobDescription> proxy=null;
     // Mob proxy
     // - id
-    int mobId=DOMParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.MOB_ID_ATTR,0);
+    int mobId=SAXParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.MOB_ID_ATTR,0);
     if (mobId!=0)
     {
       // - name
-      String mobName=DOMParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.MOB_NAME_ATTR,"?");
+      String mobName=SAXParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.MOB_NAME_ATTR,"?");
       proxy=new Proxy<MobDescription>();
       proxy.setId(mobId);
       proxy.setName(mobName);
@@ -514,16 +534,16 @@ public class ObjectivesXMLParser
     return proxy;
   }
 
-  private static Proxy<Item> parseItemProxy(NamedNodeMap attrs)
+  private static Proxy<Item> parseItemProxy(Attributes attrs)
   {
     Proxy<Item> proxy=null;
     // Item proxy
     // - id
-    int itemId=DOMParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.ITEM_ID_ATTR,0);
+    int itemId=SAXParsingTools.getIntAttribute(attrs,ObjectivesXMLConstants.ITEM_ID_ATTR,0);
     if (itemId!=0)
     {
       // - name
-      String itemName=DOMParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.ITEM_NAME_ATTR,"?");
+      String itemName=SAXParsingTools.getStringAttribute(attrs,ObjectivesXMLConstants.ITEM_NAME_ATTR,"?");
       proxy=new Proxy<Item>();
       proxy.setId(itemId);
       proxy.setName(itemName);

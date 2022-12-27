@@ -1,5 +1,9 @@
 package delta.games.lotro.character.stats.base.io.xml;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 import javax.xml.transform.sax.TransformerHandler;
 
 import org.apache.log4j.Logger;
@@ -9,6 +13,7 @@ import org.xml.sax.helpers.AttributesImpl;
 import delta.common.utils.io.xml.XmlWriter;
 import delta.games.lotro.character.stats.BasicStatsSet;
 import delta.games.lotro.character.stats.StatsSetElement;
+import delta.games.lotro.character.stats.StatsSetElementComparator;
 import delta.games.lotro.common.stats.StatDescription;
 import delta.games.lotro.common.stats.StatOperator;
 import delta.games.lotro.utils.NumericUtils;
@@ -30,10 +35,23 @@ public class BasicStatsSetXMLWriter
    */
   public static void write(TransformerHandler hd, String tagName, BasicStatsSet statsSet) throws SAXException
   {
+    write(hd,tagName,statsSet,false);
+  }
+
+  /**
+   * Write a set of stats to the given XML stream.
+   * @param hd XML output stream.
+   * @param tagName Tag to use to wrap stat tags.
+   * @param statsSet Stats to write.
+   * @param sort Sort stats or not.
+   * @throws SAXException If an error occurs.
+   */
+  public static void write(TransformerHandler hd, String tagName, BasicStatsSet statsSet, boolean sort) throws SAXException
+  {
     if ((statsSet!=null) && (statsSet.getStatsCount()>0))
     {
       hd.startElement("","",tagName,new AttributesImpl());
-      writeStats(hd,statsSet);
+      writeStats(hd,statsSet,sort);
       hd.endElement("","",tagName);
     }
   }
@@ -46,9 +64,26 @@ public class BasicStatsSetXMLWriter
    */
   public static void writeStats(TransformerHandler hd, BasicStatsSet statsSet) throws SAXException
   {
+    writeStats(hd,statsSet,false);
+  }
+
+  /**
+   * Write a set of stats to the given XML stream.
+   * @param hd XML output stream.
+   * @param statsSet Stats to write.
+   * @param sort Sort stats or not.
+   * @throws SAXException If an error occurs.
+   */
+  public static void writeStats(TransformerHandler hd, BasicStatsSet statsSet, boolean sort) throws SAXException
+  {
     if (statsSet!=null)
     {
-      for(StatsSetElement element : statsSet.getStatElements())
+      List<StatsSetElement> elements=new ArrayList<StatsSetElement>(statsSet.getStatElements());
+      if (sort)
+      {
+        Collections.sort(elements,new StatsSetElementComparator());
+      }
+      for(StatsSetElement element : elements)
       {
         // Value
         Number value=element.getValue();

@@ -41,7 +41,7 @@ import delta.games.lotro.utils.Proxy;
 import delta.games.lotro.utils.io.xml.SharedXMLConstants;
 
 /**
- * Parser for rewards stored in XML.
+ * Parser for rewards stored in XML (for collections only!).
  * @author DAM
  */
 public class RewardsXMLParser
@@ -130,14 +130,7 @@ public class RewardsXMLParser
   {
     String tagName=rewardTag.getTagName();
     // Reputation
-    if (RewardsXMLConstants.REPUTATION_TAG.equals(tagName))
-    {
-      for(Element repItemTag : DOMParsingTools.getChildTags(rewardTag))
-      {
-        parseReputationReward(rewards,repItemTag);
-      }
-    }
-    else if (RewardsXMLConstants.REPUTATION_ITEM_TAG.equals(tagName))
+    if (RewardsXMLConstants.REPUTATION_ITEM_TAG.equals(tagName))
     {
       parseReputationReward(rewards,rewardTag);
     }

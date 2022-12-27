@@ -14,8 +14,6 @@ import delta.games.lotro.lore.worldEvents.AbstractWorldEventCondition;
 import delta.games.lotro.lore.worldEvents.CompoundWorldEventCondition;
 import delta.games.lotro.lore.worldEvents.SimpleWorldEventCondition;
 import delta.games.lotro.lore.worldEvents.WorldEvent;
-import delta.games.lotro.lore.worldEvents.WorldEventConditionsRenderer;
-import delta.games.lotro.lore.worldEvents.WorldEventsManager;
 import delta.games.lotro.utils.Proxy;
 
 /**
@@ -25,36 +23,6 @@ import delta.games.lotro.utils.Proxy;
 public class WorldEventConditionsXMLParser
 {
   private static final Logger LOGGER=Logger.getLogger(WorldEventConditionsXMLParser.class);
-
-  private WorldEventConditionsRenderer _renderer;
-
-  /**
-   * Constructor.
-   */
-  public WorldEventConditionsXMLParser()
-  {
-    _renderer=new WorldEventConditionsRenderer();
-  }
-
-  /**
-   * Load a world events requirement from a parent tag.
-   * @param rootTag Parent tag.
-   * @return A requirement or <code>null</code> if none.
-   */
-  public AbstractWorldEventCondition loadRequirement(Element rootTag)
-  {
-    Element simpleReqTag=DOMParsingTools.getChildTagByName(rootTag,WorldEventConditionsXMLConstants.WORLD_EVENT_CONDITION_TAG);
-    if (simpleReqTag!=null)
-    {
-      return parseSimpleWorldEventCondition(simpleReqTag);
-    }
-    Element compoundReqTag=DOMParsingTools.getChildTagByName(rootTag,WorldEventConditionsXMLConstants.COMPOUND_WORLD_EVENT_CONDITION_TAG);
-    if (compoundReqTag!=null)
-    {
-      return parseCompoundWorldEventCondition(compoundReqTag);
-    }
-    return null;
-  }
 
   /**
    * Parse a world event condition from a tag.
@@ -101,9 +69,6 @@ public class WorldEventConditionsXMLParser
       compareToWorldEvent.setId(compareToWorldEventID);
       ret=new SimpleWorldEventCondition(operator,targetWorldEvent,compareToWorldEvent);
     }
-    resolveCondition(ret);
-    String label=_renderer.renderSimpleWorldEventCondition(ret);
-    ret.setLabel(label);
     return ret;
   }
 
@@ -129,28 +94,5 @@ public class WorldEventConditionsXMLParser
       }
     }
     return ret;
-  }
-
-  private void resolveCondition(SimpleWorldEventCondition condition)
-  {
-    Proxy<WorldEvent> targetWorldEvent=condition.getWorldEvent();
-    resolveWorldEventProxy(targetWorldEvent);
-    Proxy<WorldEvent> compareToWorldEvent=condition.getCompareToWorldEvent();
-    resolveWorldEventProxy(compareToWorldEvent);
-  }
-
-  private void resolveWorldEventProxy(Proxy<WorldEvent> proxy)
-  {
-    if (proxy==null)
-    {
-      return;
-    }
-    WorldEventsManager mgr=WorldEventsManager.getInstance();
-    WorldEvent worldEvent=mgr.getWorldEvent(proxy.getId());
-    if (worldEvent!=null)
-    {
-      proxy.setObject(worldEvent);
-      proxy.setName(worldEvent.getPropertyName());
-    }
   }
 }
